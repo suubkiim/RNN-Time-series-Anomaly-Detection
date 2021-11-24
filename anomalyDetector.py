@@ -2,6 +2,9 @@ from torch.autograd import Variable
 import torch
 import numpy as np
 
+from sklearn.metrics import precision_score, recall_score, f1_score, roc_curve, auc, roc_auc_score, precision_recall_curve, average_precision_score, cohen_kappa_score
+from tqdm import trange
+
 def fit_norm_distribution_param(args, model, train_dataset, channel_idx=0):
     predictions = []
     organized = []
@@ -10,7 +13,7 @@ def fit_norm_distribution_param(args, model, train_dataset, channel_idx=0):
         # Turn on evaluation mode which disables dropout.
         model.eval()
         pasthidden = model.init_hidden(1)
-        for t in range(len(train_dataset)):
+        for t in trange(len(train_dataset)):
             out, hidden = model.forward(train_dataset[t].unsqueeze(0), pasthidden)
             predictions.append([])
             organized.append([])
@@ -46,7 +49,7 @@ def anomalyScore(args, model, dataset, mean, cov, channel_idx=0, score_predictor
         # Turn on evaluation mode which disables dropout.
         model.eval()
         pasthidden = model.init_hidden(1)
-        for t in range(len(dataset)):
+        for t in trange(len(dataset)):
             out, hidden = model.forward(dataset[t].unsqueeze(0), pasthidden)
             predictions.append([])
             rearranged.append([])
@@ -75,7 +78,7 @@ def anomalyScore(args, model, dataset, mean, cov, channel_idx=0, score_predictor
     scores = []
     for error in errors:
         mult1 = error-mean.unsqueeze(0) # [ 1 * prediction_window_size ]
-        mult2 = torch.inverse(cov) # [ prediction_window_size * prediction_window_size ]
+        mult2 = torch.pinverse(cov) # [ prediction_window_size * prediction_window_size ]
         mult3 = mult1.t() # [ prediction_window_size * 1 ]
         score = torch.mm(mult1,torch.mm(mult2,mult3))
         scores.append(score[0][0])
@@ -94,7 +97,6 @@ def get_precision_recall(args, score, label, num_samples, beta=1.0, sampling='lo
     :param label: anomaly labels
     :param num_samples: the number of threshold samples
     :param beta:
-    :param scale:
     :return:
     '''
     if predicted_score is not None:
@@ -135,3 +137,25 @@ def get_precision_recall(args, score, label, num_samples, beta=1.0, sampling='lo
     f1 = (1 + beta ** 2) * (precision * recall).div(beta ** 2 * precision + recall + 1e-7)
 
     return precision, recall, f1
+
+
+def CalculateROCAUCMetrics(_score, _abnormal_label):
+
+    _score = _score.cpu().data.numpy()
+    _abnormal_label = _abnormal_label.cpu().data.numpy()
+
+    fpr, tpr, _ = roc_curve(_abnormal_label, _score)
+    roc_auc = auc(np.nan_to_num(fpr), np.nan_to_num(tpr))
+
+    return fpr, tpr, roc_auc
+
+
+def CalculatePrecisionRecallCurve(_score, _abnormal_label):
+
+    _score = _score.cpu().data.numpy()
+    _abnormal_label = _abnormal_label.cpu().data.numpy()
+    
+    precision_curve, recall_curve, _ = precision_recall_curve(_abnormal_label, _score)
+    average_precision = average_precision_score(_abnormal_label, _score)
+
+    return precision_curve, recall_curve, average_precision

@@ -14,6 +14,8 @@ parser.add_argument('--data', type=str, default='ecg',
                     help='type of the dataset (ecg, gesture, power_demand, space_shuttle, respiration, nyc_taxi')
 parser.add_argument('--filename', type=str, default='chfdb_chf13_45590.pkl',
                     help='filename of the dataset')
+parser.add_argument('--ckpt_name', type=str, default='gesture_64',
+                    help='filename of the dataset')
 parser.add_argument('--model', type=str, default='LSTM',
                     help='type of recurrent net (RNN_TANH, RNN_RELU, LSTM, GRU, SRU)')
 parser.add_argument('--augment', type=bool, default=True,
@@ -225,14 +227,17 @@ def train(args, model, train_dataset,epoch):
                 hids1.append(hid)
             outSeq1 = torch.cat(outVals,dim=0)
             hids1 = torch.cat(hids1,dim=0)
-            loss1 = criterion(outSeq1.view(args.batch_size,-1), targetSeq.view(args.batch_size,-1))
+#             loss1 = criterion(outSeq1.view(args.batch_size,-1), targetSeq.view(args.batch_size,-1))
+            loss1 = criterion(outSeq1.contiguous().view(args.batch_size,-1), targetSeq.contiguous().view(args.batch_size,-1))
+
+
 
             '''Loss2: Teacher forcing loss'''
             outSeq2, hidden, hids2 = model.forward(inputSeq, hidden, return_hiddens=True)
-            loss2 = criterion(outSeq2.view(args.batch_size, -1), targetSeq.view(args.batch_size, -1))
+            loss2 = criterion(outSeq2.contiguous().view(args.batch_size, -1), targetSeq.contiguous().view(args.batch_size, -1))
 
             '''Loss3: Simplified Professor forcing loss'''
-            loss3 = criterion(hids1.view(args.batch_size,-1), hids2.view(args.batch_size,-1).detach())
+            loss3 = criterion(hids1.contiguous().view(args.batch_size,-1), hids2.contiguous().view(args.batch_size,-1).detach())
 
             '''Total loss = Loss1+Loss2+Loss3'''
             loss = loss1+loss2+loss3
@@ -276,14 +281,14 @@ def evaluate(args, model, test_dataset):
                 hids1.append(hid)
             outSeq1 = torch.cat(outVals,dim=0)
             hids1 = torch.cat(hids1,dim=0)
-            loss1 = criterion(outSeq1.view(args.batch_size,-1), targetSeq.view(args.batch_size,-1))
+            loss1 = criterion(outSeq1.contiguous().view(args.batch_size,-1), targetSeq.contiguous().view(args.batch_size,-1))
 
             '''Loss2: Teacher forcing loss'''
             outSeq2, hidden, hids2 = model.forward(inputSeq, hidden, return_hiddens=True)
-            loss2 = criterion(outSeq2.view(args.batch_size, -1), targetSeq.view(args.batch_size, -1))
+            loss2 = criterion(outSeq2.contiguous().view(args.batch_size, -1), targetSeq.contiguous().view(args.batch_size, -1))
 
             '''Loss3: Simplified Professor forcing loss'''
-            loss3 = criterion(hids1.view(args.batch_size,-1), hids2.view(args.batch_size,-1).detach())
+            loss3 = criterion(hids1.contiguous().view(args.batch_size,-1), hids2.contiguous().view(args.batch_size,-1).detach())
 
             '''Total loss = Loss1+Loss2+Loss3'''
             loss = loss1+loss2+loss3

@@ -12,6 +12,9 @@ from sklearn.model_selection import GridSearchCV
 from anomalyDetector import fit_norm_distribution_param
 from anomalyDetector import anomalyScore
 from anomalyDetector import get_precision_recall
+from anomalyDetector import CalculateROCAUCMetrics
+from anomalyDetector import CalculatePrecisionRecallCurve
+
 parser = argparse.ArgumentParser(description='PyTorch RNN Anomaly Detection Model')
 parser.add_argument('--prediction_window_size', type=int, default=10,
                     help='prediction_window_size')
@@ -23,20 +26,23 @@ parser.add_argument('--save_fig', action='store_true',
                     help='save results as figures')
 parser.add_argument('--compensate', action='store_true',
                     help='compensate anomaly score using anomaly score esimation')
-parser.add_argument('--beta', type=float, default=1.0,
+parser.add_argument('--beta', type=float, default=0.1,
                     help='beta value for f-beta score')
-
+parser.add_argument('--ckpt_name', type=str, default='gesture_64',
+                    help='filename of the dataset')
 
 args_ = parser.parse_args()
 print('-' * 89)
 print("=> loading checkpoint ")
-checkpoint = torch.load(str(Path('save',args_.data,'checkpoint',args_.filename).with_suffix('.pth')))
+checkpoint = torch.load(str(Path('save',args_.data,'checkpoint',args_.ckpt_name).with_suffix('.pth')))
 args = checkpoint['args']
 args.prediction_window_size= args_.prediction_window_size
 args.beta = args_.beta
 args.save_fig = args_.save_fig
 args.compensate = args_.compensate
 print("=> loaded checkpoint")
+
+print('>> Current device :', args.device)
 
 
 # Set the random seed manually for reproducibility.
@@ -62,6 +68,7 @@ model = model.RNNPredictor(rnn_type = args.model,
                            dec_out_size=nfeatures,
                            nlayers = args.nlayers,
                            res_connection=args.res_connection).to(args.device)
+print('=> hidden size : ', args.nhid)
 model.load_state_dict(checkpoint['state_dict'])
 #del checkpoint
 
@@ -86,7 +93,7 @@ try:
         if args.compensate:
             print('=> training an SVR as anomaly score predictor')
             train_score, _, _, hiddens, _ = anomalyScore(args, model, train_dataset, mean, cov, channel_idx=channel_idx)
-            score_predictor = GridSearchCV(SVR(), cv=5,param_grid={"C": [1e0, 1e1, 1e2],"gamma": np.logspace(-1, 1, 3)})
+            score_predictor = GridSearchCV(SVR(), cv=5, param_grid={"C": [1e0, 1e1, 1e2],"gamma": np.logspace(-1, 1, 3)})
             score_predictor.fit(torch.cat(hiddens,dim=0).numpy(), train_score.cpu().numpy())
         else:
             score_predictor=None
@@ -104,12 +111,22 @@ try:
         # The precision, recall, f_beta scores are are calculated repeatedly,
         # sampling the threshold from 1 to the maximum anomaly score value, either equidistantly or logarithmically.
         print('=> calculating precision, recall, and f_beta')
-        precision, recall, f_beta = get_precision_recall(args, score, num_samples=1000, beta=args.beta,
+        precision, recall, f_1 = get_precision_recall(args, score, num_samples=10000, beta=1.0,
                                                          label=TimeseriesData.testLabel.to(args.device))
         print('data: ',args.data,' filename: ',args.filename,
-              ' f-beta (no compensation): ', f_beta.max().item(),' beta: ',args.beta)
+              ' f-1 (no compensation): ', f_1.max().item(),' beta: ', 1.0)
+        
+        precision_01, recall_01, f_beta = get_precision_recall(args, score, num_samples=10000, beta=args.beta,
+                                                         label=TimeseriesData.testLabel.to(args.device))
+        print('data: ',args.data,' filename: ',args.filename,
+              ' f-beta (no compensation): ', f_beta.max().item(),' beta: ', args.beta)
+
+        _, _, roc_auc = CalculateROCAUCMetrics(score, TimeseriesData.testLabel.to(args.device))
+        _, _, pr_auc = CalculatePrecisionRecallCurve(score, TimeseriesData.testLabel.to(args.device))
+        print("ROC-AUC:{}, PR-AUC:{}".format(roc_auc, pr_auc))
+    
         if args.compensate:
-            precision, recall, f_beta = get_precision_recall(args, score, num_samples=1000, beta=args.beta,
+            precision, recall, f_beta = get_precision_recall(args, score, num_samples=10000, beta=args.beta,
                                                              label=TimeseriesData.testLabel.to(args.device),
                                                              predicted_score=predicted_score)
             print('data: ',args.data,' filename: ',args.filename,
